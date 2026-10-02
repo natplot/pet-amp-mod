@@ -1,4 +1,4 @@
-# cat-amp
+# pet-amp-mod
 
 A cassette deck for Spotify and Apple Music inside Claude Code, with a pixel cat
 that dances to the beat of whatever is playing.
@@ -34,7 +34,7 @@ An unofficial mod. Not made or endorsed by Anthropic, Apple or Spotify.
 1. Clone the repository:
 
    ```sh
-   git clone https://github.com/natplot/cat-amp ~/.claude/mods/cat-amp
+   git clone https://github.com/natplot/pet-amp-mod ~/.claude/mods/pet-amp-mod
    ```
 
 2. Turn the mod on in `~/.claude/settings.json`, with the absolute path to
@@ -43,7 +43,7 @@ An unofficial mod. Not made or endorsed by Anthropic, Apple or Spotify.
    ```json
    {
      "env": {
-       "CLAUDE_CODE_PLUGIN_DIRS": "/Users/YOU/.claude/mods/cat-amp/mod",
+       "CLAUDE_CODE_PLUGIN_DIRS": "/Users/YOU/.claude/mods/pet-amp-mod/mod",
        "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"
      }
    }
@@ -52,7 +52,7 @@ An unofficial mod. Not made or endorsed by Anthropic, Apple or Spotify.
 3. Build and start Mac Pulse Beat:
 
    ```sh
-   bash ~/.claude/mods/cat-amp/beat/scripts/install.sh
+   bash ~/.claude/mods/pet-amp-mod/beat/scripts/install.sh
    ```
 
 4. Play something in Spotify, open a new Claude session and type `/tape`.
