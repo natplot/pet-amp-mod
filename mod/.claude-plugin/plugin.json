@@ -1,0 +1,1 @@
+{ "name": "tape-club", "version": "0.1.0", "description": "Tape Club: an Apple Music cassette deck pane with a desk cat that wags to the beat", "types": "./types/index.d.ts" }
