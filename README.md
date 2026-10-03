@@ -1,5 +1,7 @@
 # pet-amp-mod
 
+⭐ Star the repo if the cat made you smile.
+
 A cassette deck for Spotify and Apple Music inside Claude Code, with a pixel cat
 that dances to the beat of whatever is playing.
 
