@@ -12,6 +12,11 @@ export type TapeNow = {
   at: number
   /** 0 when the track carries no tempo. */
   bpm: number
+  /** Music's own volume, 0-100. */
+  volume: number
+  shuffle: boolean
+  /** `off`, `one` or `all`. */
+  repeat: string
   playlist: string
   index: number
   /** The current track and its neighbours in the playlist. */
@@ -25,10 +30,16 @@ export type TapePress = { slot: number; at: number }
  *  a beat that opens a bar of four, kept in step from one reading to the next. */
 export type TapeBeat = { bpm: number; beatAt: number; barAt: number }
 
+/** Which look the deck and the band wear. */
+export type TapeSkin = 'tape' | 'amp'
+
+/** The pet chosen in the pane: one by name, none, or the skin's own. */
+export type TapePetChoice = 'skin' | 'calico' | 'ginger' | 'cavapoo' | 'none'
+
 export type TapeArt = 'raster' | 'vector'
 
 declare module 'claude-code' {
   interface PluginState {
-    'tape-club': { isOn: boolean; now: TapeNow | null; art: TapeArt; hasPet: boolean; hasKeys: boolean; pressed: TapePress | null; beat: TapeBeat | null }
+    'tape-club': { isOn: boolean; skin: TapeSkin; petChoice: TapePetChoice; now: TapeNow | null; art: TapeArt; hasPet: boolean; hasKeys: boolean; pressed: TapePress | null; beat: TapeBeat | null }
   }
 }

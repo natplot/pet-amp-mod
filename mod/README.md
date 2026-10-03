@@ -10,6 +10,19 @@ An unofficial mod. Not made or endorsed by Anthropic, Apple or Spotify.
 
 ![The band above the prompt](docs/band.png)
 
+A second skin, ClaudeAmp '98, after the old desktop audio players: a brushed
+metal window with a lit seven-segment clock that runs by itself, a spectrum on
+the beat, working volume, SHUFFLE and REPEAT, and a ginger cat on the title
+bar. `/tape amp` puts it on, `/tape tape` goes back.
+
+![The ClaudeAmp skin](docs/claudeamp.png)
+
+The skin and the pet are chosen apart: a calico cat, a ginger cat, or a
+cavapoo with a pink bow. Each taps her front paws in turn, wags her tail and
+sways her head on the beat. Until a pet is chosen, each skin brings its own cat.
+
+![The cavapoo on both skins](docs/pets.png)
+
 ## What it does
 
 - **Deck pane** (`/tape`): the cassette with turning reels, the track and
@@ -45,6 +58,8 @@ See the [main README](../README.md#install).
 | `/tape` | Turns the mod on in this session and opens the deck |
 | `/tape off` | Turns it off: no band, no deck, no polling |
 | `/tape close` | Closes the deck, keeps the band |
+| `/tape skin amp` / `/tape skin tape` | Switches between the ClaudeAmp '98 skin and the cassette deck (`/tape amp`, `/tape tape` for short) |
+| `/tape pet calico` / `ginger` / `cavapoo` / `none` / `skin` | Chooses the pet; `skin` gives each skin its own cat |
 | `/tape keys` | Switches between the drawn keys and plain system buttons |
 | `/tape vector` / `/tape raster` | Draws the cassette as plain shapes, or from the pictures |
 
@@ -90,15 +105,22 @@ These come from what a mod can do on the desktop today, found by trial:
 
 ## Changing the pictures
 
-`hooks/assets.ts` is generated. Replace the files in `assets-src/` and run:
+`hooks/assets.ts` is generated. Replace the files in `assets-src/` (ClaudeAmp's
+parts are in `assets-src/amp/`, drawn at 2x) and run:
 
 ```sh
 pip install pillow
 python3 tools/gen_assets.py
 ```
 
-The cat is `pixel-cat-faithful.svg`, cut into body, head, tail and two paws by
-the boxes at the top of the script.
+The cats are `calico-cat.svg` (Tape Club) and `ginger-cat.svg` (ClaudeAmp), each
+cut into body, head, tail and two paws by the numbers in `CATS` in the script.
+The cavapoo, `assets-src/pets/cavapoo.svg`, is cut into the same pieces by
+`python3 tools/render_pet_layers.py` (needs Google Chrome), which renders them
+to PNG because her drawing is too detailed to embed as vectors; then run
+`gen_assets.py`.
+
+Both switches also sit at the bottom of the deck pane.
 
 ## Layout
 
@@ -106,7 +128,8 @@ the boxes at the top of the script.
 | --- | --- |
 | `.claude-plugin/plugin.json` | The manifest |
 | `hooks/register.tsx` | Hooks: polling the player, the commands, the pane and the band |
-| `hooks/art.ts` | The drawings, as SVG strings |
+| `hooks/art.ts` | The Tape Club drawings, as SVG strings, and what both skins share |
+| `hooks/amp.ts` | The ClaudeAmp '98 drawings |
 | `hooks/assets.ts` | Generated pictures and cat paths |
 | `types/index.d.ts` | The mod's state contract |
 | `tools/gen_assets.py`, `assets-src/` | The generator and its sources |

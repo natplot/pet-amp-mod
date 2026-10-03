@@ -1,20 +1,21 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { TapeBeat, TapeNow, TapeTrack } from '../types'
+import type { TapeBeat, TapeNow, TapePetChoice, TapeTrack } from '../types'
 
 import {
   BAND_HEIGHT,
-  DECK_HEIGHT,
   DECK_WIDTH,
-  KEYS_HEIGHT,
-  KEY_SLOTS,
+  TAPE_LAYOUT,
   bandBar,
   bandSlots,
   drawBand,
   drawDeck,
   drawKeys,
+  PETS,
+  type PetArt,
 } from './art'
+import { AMP_LAYOUT, drawAmpBand, drawAmpDeck, drawAmpKeys } from './amp'
 
 const PANE = 'tape-club'
 
@@ -32,9 +33,13 @@ const DRIFT_SECONDS = 3
 // Off until the person runs /tape in the session: nothing is drawn and Music
 // is not asked.
 const isOn = atom({ plugin: 'tape-club', key: 'isOn' } as const, false)
+// Which look: the olive cassette deck, or ClaudeAmp '98.
+const skin = atom({ plugin: 'tape-club', key: 'skin' } as const, 'tape')
 const now = atom({ plugin: 'tape-club', key: 'now' } as const, null)
 const art = atom({ plugin: 'tape-club', key: 'art' } as const, 'raster')
+// Kept from before the pet switch: `false` meant the pet was switched off.
 const hasPet = atom({ plugin: 'tape-club', key: 'hasPet' } as const, true)
+const petChoice = atom({ plugin: 'tape-club', key: 'petChoice' } as const, 'skin')
 const beat = atom({ plugin: 'tape-club', key: 'beat' } as const, null)
 const pressed = atom({ plugin: 'tape-club', key: 'pressed' } as const, null)
 const hasKeys = atom({ plugin: 'tape-club', key: 'hasKeys' } as const, true)
@@ -45,14 +50,17 @@ const hasKeys = atom({ plugin: 'tape-club', key: 'hasKeys' } as const, true)
 type Player = 'Spotify' | 'Music'
 let player: Player = 'Spotify'
 
-// Spotify reports duration in ms, carries no tempo and shows no playlist.
+// Spotify reports duration in ms, carries no tempo and shows no playlist. Its
+// repeat is on or off, written here in Music's words: all or off.
 const SPOTIFY_SNAPSHOT = `
 if application "Spotify" is not running then return "off"
 tell application "Spotify"
   set ps to player state as text
   if ps is "stopped" then return "stopped"
   set t to current track
-  return ps & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & ((duration of t) / 1000) & linefeed & (player position) & linefeed & 0
+  set rp to "off"
+  if repeating then set rp to "all"
+  return ps & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & ((duration of t) / 1000) & linefeed & (player position) & linefeed & 0 & linefeed & (sound volume) & linefeed & (shuffling) & linefeed & rp
 end tell`
 
 // Asks Music only while it runs, so a poll never launches the app. One field
@@ -63,7 +71,7 @@ tell application "Music"
   set ps to player state as text
   if ps is "stopped" then return "stopped"
   set t to current track
-  set res to ps & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & (duration of t) & linefeed & (player position) & linefeed & (bpm of t)
+  set res to ps & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & (duration of t) & linefeed & (player position) & linefeed & (bpm of t) & linefeed & (sound volume) & linefeed & (shuffle enabled) & linefeed & (song repeat as text)
   try
     set pl to current playlist
     set i to index of t
@@ -92,7 +100,7 @@ function parse(stdout: string, at: number): TapeNow | null {
     return null
   }
 
-  const tracks: TapeTrack[] = lines.slice(9).flatMap(line => {
+  const tracks: TapeTrack[] = lines.slice(12).flatMap(line => {
     const [index, name, time] = line.split('\t')
 
     return name === undefined ? [] : [{ index: number(index), name, time: time ?? '' }]
@@ -107,8 +115,11 @@ function parse(stdout: string, at: number): TapeNow | null {
     position: number(lines[5]),
     at,
     bpm: number(lines[6]),
-    playlist: lines[7] ?? '',
-    index: number(lines[8]),
+    volume: number(lines[7]),
+    shuffle: lines[8] === 'true',
+    repeat: lines[9] ?? 'off',
+    playlist: lines[10] ?? '',
+    index: number(lines[11]),
     tracks,
   }
 }
@@ -127,6 +138,9 @@ function isSame(a: TapeNow | null, b: TapeNow | null) {
     a.artist === b.artist &&
     a.index === b.index &&
     a.playlist === b.playlist &&
+    a.volume === b.volume &&
+    a.shuffle === b.shuffle &&
+    a.repeat === b.repeat &&
     a.tracks.length === b.tracks.length &&
     Math.abs(positionAt(a, b.at) - b.position) < DRIFT_SECONDS
   )
@@ -252,8 +266,19 @@ async function pressKey($: EngineInterface, slot: number, command: string) {
   const at = await $.clock.now()
   await update($, pressed, () => ({ slot, at }))
 
+  const tape = await read($, now)
+
   if (command === 'deck') {
     await $.ui.open({ id: PANE, title: 'Tape Club', columns: 46 })
+  } else if (command.startsWith('volume:')) {
+    await tell($, `set sound volume to ${Number(command.slice('volume:'.length))}`)
+  } else if (command === 'shuffle') {
+    // The two players name these differently.
+    const setting = player === 'Spotify' ? 'shuffling' : 'shuffle enabled'
+    await tell($, `set ${setting} to ${!(tape?.shuffle ?? false)}`)
+  } else if (command === 'repeat') {
+    const isOff = (tape?.repeat ?? 'off') === 'off'
+    await tell($, player === 'Spotify' ? `set repeating to ${isOff}` : `set song repeat to ${isOff ? 'all' : 'off'}`)
   } else {
     await tell($, command)
   }
@@ -278,12 +303,33 @@ function seekStops(barPx: number) {
   return Array.from({ length: count }, (_, i) => ({ px: i * step, share: (i + 0.5) / count }))
 }
 
+const PET_CHOICES = ['calico', 'ginger', 'cavapoo', 'none'] as const
+const PET_LABELS: Record<(typeof PET_CHOICES)[number], string> = {
+  calico: 'Calico',
+  ginger: 'Ginger',
+  cavapoo: 'Cavapoo',
+  none: 'None',
+}
+
+/** The pet to draw: the one chosen, or the skin's own cat until one is chosen. */
+async function petOf($: EngineInterface, isAmp: boolean): Promise<{ art: PetArt | null; name: TapePetChoice }> {
+  const choice = await read($, petChoice)
+
+  if (choice === 'none' || (choice === 'skin' && !(await read($, hasPet)))) {
+    return { art: null, name: 'none' }
+  }
+
+  const name = choice === 'skin' ? (isAmp ? 'ginger' : 'calico') : choice
+
+  return { art: PETS[name], name }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'tape',
       description: 'Turn on the Tape Club deck for Spotify or Apple Music (off: /tape off)',
-      argumentHint: '[off|close|keys|raster|vector]',
+      argumentHint: '[skin tape|amp] [pet calico|ginger|cavapoo|none] [off|close|keys]',
     })
     // A track on record means the deck was in use when the mod reloaded: it
     // stays on. Otherwise what is drawn would never be refreshed again.
@@ -318,6 +364,18 @@ export const register: Register = on => {
 
     await update($, isOn, () => true)
 
+    // `/tape amp` and `/tape skin amp` both switch the skin; `/tape pet cavapoo` the pet.
+    const [first, second] = arg.split(/\s+/)
+    const skinName = first === 'skin' ? second : first
+
+    if (skinName === 'tape' || skinName === 'amp') {
+      await update($, skin, () => skinName)
+    }
+
+    if (first === 'pet' && (second === 'skin' || PET_CHOICES.some(name => name === second))) {
+      await update($, petChoice, () => second as TapePetChoice)
+    }
+
     if (arg === 'keys') {
       await update($, hasKeys, shown => !shown)
     }
@@ -334,7 +392,8 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const tape = await read($, now)
-    const pet = await read($, hasPet)
+    const isAmp = (await read($, skin)) === 'amp'
+    const pet = await petOf($, isAmp)
     const tracks = tape?.tracks ?? []
 
     if (e.surface === 'terminal') {
@@ -356,52 +415,67 @@ export const register: Register = on => {
     const { Box, Text, Button, Svg } = $.ui.resolve(e)
     const at = await $.clock.now()
     const position = tape ? positionAt(tape, at) : 0
-    const scene = { now: tape, beat: await read($, beat), at, position, art: await read($, art), hasPet: pet }
+    const scene = { now: tape, beat: await read($, beat), at, position, art: await read($, art), pet: pet.art }
+    const layout = isAmp ? AMP_LAYOUT : TAPE_LAYOUT
     // A column of the pane is a little over 7 px wide here; leave a margin.
     const width = Math.max(300, Math.min(520, Math.floor(e.props.bodyColumns * 7) - 20))
-    const height = Math.round((width * DECK_HEIGHT) / DECK_WIDTH)
+    const height = Math.round((width * layout.height) / DECK_WIDTH)
     const label = tape ? `${tape.name} by ${tape.artist}` : 'Tape Club deck, nothing playing'
     const keys = await read($, hasKeys)
     const hit = await read($, pressed)
     const scale = width / DECK_WIDTH
-    const rows = Math.max(1, Math.floor((KEYS_HEIGHT * scale) / CELL.height))
+    const press = hit ? { slot: hit.slot, age: (at - hit.at) / 1000 } : undefined
+    // Blank Buttons over a part of a drawing: as many rows as cover it, as wide as it is.
+    const over = (part: { x: number; y: number; w: number; h: number }, top = 0) => {
+      const first = Math.floor((top + part.y * scale) / CELL.height)
+      const last = Math.max(first + 1, Math.round((top + (part.y + part.h) * scale) / CELL.height))
+
+      return { top: first, rows: last - first, left: Math.round((part.x * scale) / CELL.width), glyphs: Math.max(1, Math.round((part.w * scale - BLANK_BUTTON.padding) / BLANK_BUTTON.glyph)) }
+    }
 
     return (
       <Box flexDirection="column" alignItems="center" gap={1}>
+        {/* The deck and its key strip touch: in ClaudeAmp they are one window. */}
         <Box flexDirection="column">
-          <Svg source={drawDeck(scene)} alt={label} width={width} height={height} />
-          {seekStops(320 * scale).map((stop, i) => (
-            <Box
-              position="absolute"
-              top={Math.floor((306 * scale) / CELL.height)}
-              left={Math.round((20 * scale + stop.px) / CELL.width)}
-            >
-              <Button key={`seek-${i}`} plain label={BLANK} onPress={() => seekTo($, stop.share)} />
-            </Box>
-          ))}
-        </Box>
-        {keys && (
           <Box flexDirection="column">
-            <Svg source={drawKeys(tape?.isPlaying ?? false, hit ? { slot: hit.slot, age: ((await $.clock.now()) - hit.at) / 1000 } : undefined)} alt="Transport keys" width={width} height={Math.round(KEYS_HEIGHT * scale)} />
-            {KEY_SLOTS.map((slot, column) => (
+            <Svg source={isAmp ? drawAmpDeck(scene) : drawDeck(scene)} alt={label} width={width} height={height} />
+            {seekStops((layout.seek.x2 - layout.seek.x1) * scale).map((stop, i) => (
               <Box
                 position="absolute"
-                top={0}
-                left={Math.round((slot.x * scale) / CELL.width)}
-                flexDirection="column"
+                top={Math.floor((layout.seek.y * scale) / CELL.height)}
+                left={Math.round((layout.seek.x1 * scale + stop.px) / CELL.width)}
               >
-                {Array.from({ length: rows }, (_, row) => (
-                  <Button
-                    key={`over-${column}-${row}`}
-                    plain
-                    label={BLANK.repeat(Math.max(1, Math.round((slot.width * scale - BLANK_BUTTON.padding) / BLANK_BUTTON.glyph)))}
-                    onPress={() => pressKey($, column, slot.command)}
-                  />
-                ))}
+                <Button key={`seek-${i}`} plain label={BLANK} onPress={() => seekTo($, stop.share)} />
               </Box>
             ))}
           </Box>
-        )}
+          {keys && (
+            <Box flexDirection="column">
+              <Svg
+                source={isAmp ? drawAmpKeys(tape, press) : drawKeys(tape?.isPlaying ?? false, press)}
+                alt="Transport keys"
+                width={width}
+                height={Math.round(layout.keysHeight * scale)}
+              />
+              {layout.keyHits.map((part, slot) => {
+                const place = over(part)
+
+                return (
+                  <Box position="absolute" top={place.top} left={place.left} flexDirection="column">
+                    {Array.from({ length: place.rows }, (_, row) => (
+                      <Button
+                        key={`over-${slot}-${row}`}
+                        plain
+                        label={BLANK.repeat(place.glyphs)}
+                        onPress={() => pressKey($, slot, part.action)}
+                      />
+                    ))}
+                  </Box>
+                )
+              })}
+            </Box>
+          )}
+        </Box>
         {!keys && (
           <Box gap={1} justifyContent="center">
             <Button key="prev" label="◀◀" onPress={() => tell($, 'previous track')} />
@@ -428,14 +502,30 @@ export const register: Register = on => {
             </Box>
           ))}
         </Box>
+        {/* Two switches: the skin, and the pet, chosen apart from each other. */}
         <Box gap={1}>
-          <Text dimColor>Little rituals</Text>
-          <Button
-            key="pet"
-            plain
-            label={pet ? 'Desk pet: on' : 'Desk pet: off'}
-            onPress={() => update($, hasPet, shown => !shown)}
-          />
+          <Text dimColor>Skin</Text>
+          {(['tape', 'amp'] as const).map(name => (
+            <Button
+              key={`skin-${name}`}
+              plain
+              dimColor={isAmp !== (name === 'amp')}
+              label={`${isAmp === (name === 'amp') ? '●' : '○'} ${name === 'amp' ? "ClaudeAmp '98" : 'Tape Club'}`}
+              onPress={() => update($, skin, () => name)}
+            />
+          ))}
+        </Box>
+        <Box gap={1}>
+          <Text dimColor>Pet</Text>
+          {PET_CHOICES.map(name => (
+            <Button
+              key={`pet-${name}`}
+              plain
+              dimColor={pet.name !== name}
+              label={`${pet.name === name ? '●' : '○'} ${PET_LABELS[name]}`}
+              onPress={() => update($, petChoice, () => name)}
+            />
+          ))}
         </Box>
       </Box>
     )
@@ -472,15 +562,16 @@ export const register: Register = on => {
     // Measured on the desktop: 95 columns of the band are 749 px across.
     const width = Math.max(360, Math.floor(e.props.bodyColumns * BAND_COLUMN_PX))
     const hit = await read($, pressed)
-    const pet = await read($, hasPet)
-    const scene = { now: tape, beat: await read($, beat), at, position: positionAt(tape, at), art: await read($, art), hasPet: pet }
+    const isAmp = (await read($, skin)) === 'amp'
+    const pet = await petOf($, isAmp)
+    const scene = { now: tape, beat: await read($, beat), at, position: positionAt(tape, at), art: await read($, art), pet: pet.art }
     const rows = Math.floor(BAND_HEIGHT / CELL.height)
-    const bar = bandBar(width, pet)
+    const bar = bandBar(width, pet.art)
 
     return (
       <Box flexDirection="column">
         <Svg
-          source={drawBand(scene, width, hit ? { slot: hit.slot, age: (at - hit.at) / 1000 } : undefined)}
+          source={(isAmp ? drawAmpBand : drawBand)(scene, width, hit ? { slot: hit.slot, age: (at - hit.at) / 1000 } : undefined)}
           alt={`${tape.name} by ${tape.artist}`}
           width={width}
           height={BAND_HEIGHT}

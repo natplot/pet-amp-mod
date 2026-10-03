@@ -1,6 +1,13 @@
 import type { TapeArt, TapeBeat, TapeNow } from '../types'
 
-import { CAT_BODY, CAT_GRID, CAT_HEAD, CAT_HEAD_PIVOT, CAT_PAW_CLIP, CAT_PAW_LEFT, CAT_PAW_RIGHT, CAT_TAIL, CAT_TAIL_PIVOT, ENAMEL, HUB, HUB_SMALL, SHELL, SHELL_SMALL } from './assets'
+import { CALICO, CAVAPOO, ENAMEL, GINGER, HUB, HUB_SMALL, SHELL, SHELL_SMALL } from './assets'
+
+/** A pet cut into moving pieces by tools/gen_assets.py: body, head, tail, two front paws. */
+export type PetArt = typeof CALICO | typeof GINGER | typeof CAVAPOO
+
+/** The pets by name, for the switch in the pane and /tape pet. */
+export const PETS = { calico: CALICO, ginger: GINGER, cavapoo: CAVAPOO } as const
+export type PetName = keyof typeof PETS
 
 const INK = '#fff7e7'
 const ACCENT = '#d9683f'
@@ -14,15 +21,15 @@ const REELS = [0.2741, 0.723].map(fx => CASS.x + fx * CASS.w)
 const REEL_Y = CASS.y + 0.4842 * CASS.h
 const HUB_SIZE = 0.1988 * CASS.w
 
-const escapeXml = (text: string) =>
+export const escapeXml = (text: string) =>
   text.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)
 
-const clip = (text: string, max: number) =>
+export const clip = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
 
 // A redraw replaces the drawing, so every loop begins where the clock says it
 // already is: `begin` is how far into its cycle the loop stands, negated.
-const into = (cycle: number, at: number) => `begin="${(-(((at % cycle) + cycle) % cycle)).toFixed(3)}s"`
+export const into = (cycle: number, at: number) => `begin="${(-(((at % cycle) + cycle) % cycle)).toFixed(3)}s"`
 
 const spin = (seconds: number, at: number) =>
   `<animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="${seconds}s" ${into(seconds, at)} repeatCount="indefinite"/>`
@@ -108,10 +115,11 @@ function meter(x: number, pulse: Pulse | null) {
     .join('')
 }
 
-function cat(pulse: Pulse | null) {
-  const size = 68
-  const scale = size / CAT_GRID
-  const [px, py] = CAT_TAIL_PIVOT
+/** Stands a pet with its visible left edge at `left`, its feet on `floor`, `height` tall. */
+export function standPet(art: PetArt, pulse: Pulse | null, left: number, floor: number, height: number) {
+  const size = height / (art.bottom - art.top)
+  const scale = size / art.grid
+  const [px, py] = art.tailPivot
   const ease = 'calcMode="spline" keySplines="0.3 0 0.2 1;0.3 0 0.2 1"'
   const over = (beats: number) =>
     pulse
@@ -129,7 +137,7 @@ function cat(pulse: Pulse | null) {
   // beat of the pair, the right one on the second; each lifts just before.
   const pair = over(2)
   // The head leans to one side for two beats, then to the other.
-  const [hx, hy] = CAT_HEAD_PIVOT
+  const [hx, hy] = art.headPivot
   const sway = pulse
     ? `<animateTransform attributeName="transform" type="rotate" values="-2.5 ${hx} ${hy};2.5 ${hx} ${hy};-2.5 ${hx} ${hy}" keyTimes="0;0.5;1" ${ease} ${over(4)}/>`
     : ''
@@ -140,25 +148,23 @@ function cat(pulse: Pulse | null) {
     ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 -50;0 -50;0 0;0 0" keyTimes="0;0.16;0.36;0.5;1" ${pair}/>`
     : ''
 
-  // Paws rest on the progress bar at y=306; the cat's lowest pixel is
-  // at 0.913 of its canvas.
   return (
-    `<g transform="translate(280 ${306 - 0.913 * size}) scale(${scale})">` +
-    `<g>${CAT_TAIL}${wag}</g>` +
-    `<g>${bob}${CAT_BODY}<g>${CAT_HEAD}${sway}</g>${CAT_PAW_CLIP}<g clip-path="url(#cp0)">${CAT_PAW_LEFT}${tapLeft}</g><g clip-path="url(#cp1)">${CAT_PAW_RIGHT}${tapRight}</g></g>` +
+    `<g transform="translate(${left - art.left * size} ${floor - art.bottom * size}) scale(${scale})">` +
+    `<g>${art.tail}${wag}</g>` +
+    `<g>${bob}${art.body}<g>${art.head}${sway}</g>${art.pawClip}<g clip-path="url(#cp0)">${art.pawLeft}${tapLeft}</g><g clip-path="url(#cp1)">${art.pawRight}${tapRight}</g></g>` +
     `</g>`
   )
 }
 
-const clock = (seconds: number) =>
+export const clock = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
 
 /** The beat as the drawing needs it: its period, and how far the clock stands
  *  past the beat that opened a bar of four, in seconds. The meter and the body
  *  move over one beat, the tail and the paws over two, the head over four. */
-type Pulse = { period: number; sinceBar: number }
+export type Pulse = { period: number; sinceBar: number }
 
-function pulseAt(now: TapeNow | null, beat: TapeBeat | null, at: number): Pulse | null {
+export function pulseAt(now: TapeNow | null, beat: TapeBeat | null, at: number): Pulse | null {
   if (!now?.isPlaying) {
     return null
   }
@@ -177,7 +183,8 @@ export type Scene = {
   /** Seconds into the track at the moment of drawing. */
   position: number
   art: TapeArt
-  hasPet: boolean
+  /** The pet on the deck and the band, or none. */
+  pet: PetArt | null
 }
 
 /** The deck is drawn 360 wide; the frame it is shown in keeps this shape. */
@@ -186,7 +193,8 @@ export const DECK_HEIGHT = 334
 
 // One drawing, shown as an image (not interactive): the desktop keeps embedded
 // pictures only there, and its animation runs there too.
-export function drawDeck({ now, beat, at, position, art, hasPet }: Scene): string {
+export function drawDeck({ now, beat, at, position, art, pet }: Scene): string {
+  const hasPet = pet !== null
   const isPlaying = now?.isPlaying ?? false
   const seconds = at / 1000
   const pulse = pulseAt(now, beat, seconds)
@@ -221,7 +229,7 @@ export function drawDeck({ now, beat, at, position, art, hasPet }: Scene): strin
     meter(hasPet ? 244 : 314, pulse) +
     `<rect x="20" y="306" width="320" height="4" rx="2" fill="#141a0d" opacity=".5"/>` +
     `<rect x="20" y="306" width="${(320 * done).toFixed(1)}" height="4" rx="2" fill="${ACCENT}">${run}</rect>` +
-    (hasPet ? cat(pulse) : '') +
+    (pet ? standPet(pet, pulse, 280 + 0.13 * 68, 306, 0.797 * 68) : '') +
     (now
       ? `<text x="20" y="326" font-family="-apple-system,sans-serif" font-size="11" letter-spacing="1" fill="${INK}" opacity=".85">${clock(position)}</text>` +
         `<text x="340" y="326" text-anchor="end" font-family="-apple-system,sans-serif" font-size="11" letter-spacing="1" fill="${INK}" opacity=".85">${clock(now.duration)}</text>`
@@ -231,6 +239,17 @@ export function drawDeck({ now, beat, at, position, art, hasPet }: Scene): strin
 }
 
 /** The key strip is drawn 360 wide like the deck; each key's left edge and width. */
+/** A part of a drawing that takes presses, in the drawing's own units. */
+export type Hit = { x: number; y: number; w: number; h: number; action: string }
+
+/** Where a skin's deck and key strip take presses: the seek bar, and each key. */
+export type DeckLayout = {
+  height: number
+  seek: { x1: number; x2: number; y: number }
+  keysHeight: number
+  keyHits: Hit[]
+}
+
 export const KEYS_HEIGHT = 58
 export const KEY_SLOTS = [
   { command: 'previous track', x: 20, width: 100 },
@@ -238,14 +257,14 @@ export const KEY_SLOTS = [
   { command: 'next track', x: 240, width: 100 },
 ] as const
 
-const KEY_GLYPHS = {
+export const KEY_GLYPHS = {
   prev: 'M-2 -8v16l-12-8zM12 -8v16l-12-8z',
   next: 'M-12 -8v16l12-8zM2 -8v16l12-8z',
   play: 'M-6 -9v18l15-9z',
   pause: 'M-8 -8h6v16h-6zM2 -8h6v16h-6z',
 }
 
-const PRESS_SECONDS = 0.24
+export const PRESS_SECONDS = 0.24
 
 // Only a picture: the presses are taken by blank Buttons laid over it. A key
 // pressed `age` seconds ago sinks onto its base and comes back; the negative
@@ -343,19 +362,22 @@ function bandCassette(art: TapeArt, turning: number | null, label: string) {
 }
 
 /** Where the band's progress bar runs, in px: the seek Buttons are laid over it. */
-export function bandBar(width: number, hasPet: boolean) {
+/** Room a cat standing `height` tall takes in the band, tail swing included. */
+export const petRoom = (art: PetArt, height: number) =>
+  Math.round(((art.right - art.left) * height) / (art.bottom - art.top)) + 14
+
+export function bandBar(width: number, pet: PetArt | null) {
   const keysLeft = bandSlots(width)[0]!.x
   const left = BAND_CASS.x + BAND_CASS.w + 14
 
-  return { left, right: keysLeft - (hasPet ? BAND_CAT.room : 6) - 10, y: 74 }
+  return { left, right: keysLeft - (pet ? petRoom(pet, BAND_CAT.height) : 6) - 10, y: 74 }
 }
 
-// The cat stands as tall as the band allows, the same margin above its ears as
-// under its paws: it is drawn over 0.797 of its canvas, from 0.116 down.
-const BAND_CAT = { margin: 6, room: Math.round(((BAND_HEIGHT - 12) / 0.797) * 0.78) + 4 }
+// The cat stands as tall as the band allows, the same margin above its ears as under its paws.
+export const BAND_CAT = { margin: 6, height: BAND_HEIGHT - 12 }
 
 export function drawBand(
-  { now, beat, at, position, art, hasPet }: Scene,
+  { now, beat, at, position, art, pet }: Scene,
   width: number,
   pressed?: { slot: number; age: number },
 ): string {
@@ -365,8 +387,8 @@ export function drawBand(
   const slots = bandSlots(width)
   const keysLeft = slots[0]!.x
   // Right to left before the keys: the cat, then the meter; the text takes what is left.
-  const catLeft = keysLeft - (hasPet ? BAND_CAT.room : 6)
-  const bar = bandBar(width, hasPet)
+  const catLeft = keysLeft - (pet ? petRoom(pet, BAND_CAT.height) : 6)
+  const bar = bandBar(width, pet)
   const textLeft = bar.left
   const span = bar.right - bar.left
   const room = Math.max(4, Math.floor(span / 11.6))
@@ -401,12 +423,7 @@ export function drawBand(
     art === 'raster'
       ? `<image href="${ENAMEL}" width="${width}" height="${BAND_HEIGHT}" preserveAspectRatio="xMidYMid slice" clip-path="url(#band)"/>`
       : `<rect width="${width}" height="${BAND_HEIGHT}" rx="11" fill="#566043"/>`
-  // The cat is the deck's, resized: its paws at (280, 306) there land on the
-  // band's floor here, and its ears stop one margin short of the top.
-  const shrink = (BAND_HEIGHT - 2 * BAND_CAT.margin) / 0.797 / 68
-  const pet = hasPet
-    ? `<g transform="translate(${catLeft - 0.13 * 68 * shrink - 280 * shrink} ${BAND_HEIGHT - BAND_CAT.margin - 306 * shrink}) scale(${shrink})">${cat(pulse)}</g>`
-    : ''
+  const petDrawing = pet ? standPet(pet, pulse, catLeft, BAND_HEIGHT - BAND_CAT.margin, BAND_CAT.height) : ''
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${BAND_HEIGHT}" viewBox="0 0 ${width} ${BAND_HEIGHT}">` +
@@ -429,8 +446,15 @@ export function drawBand(
       : '') +
     `<rect x="${bar.left}" y="${bar.y}" width="${span}" height="4" rx="2" fill="#141a0d" opacity=".5"/>` +
     `<rect x="${bar.left}" y="${bar.y}" width="${(span * done).toFixed(1)}" height="4" rx="2" fill="${ACCENT}">${run}</rect>` +
-    pet +
+    petDrawing +
     keys +
     `</svg>`
   )
+}
+
+export const TAPE_LAYOUT: DeckLayout = {
+  height: DECK_HEIGHT,
+  seek: { x1: 20, x2: 340, y: 306 },
+  keysHeight: KEYS_HEIGHT,
+  keyHits: KEY_SLOTS.map(slot => ({ x: slot.x, y: 0, w: slot.width, h: KEYS_HEIGHT, action: slot.command })),
 }

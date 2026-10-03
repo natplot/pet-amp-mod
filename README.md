@@ -9,6 +9,14 @@ that dances to the beat of whatever is playing.
 
 ![The band above the prompt](mod/docs/band.png)
 
+Two skins, the olive cassette deck and ClaudeAmp '98, a brushed-metal player
+with a lit clock, a spectrum, volume, SHUFFLE and REPEAT. Three pets: a calico
+cat, a ginger cat and a cavapoo, chosen apart from the skin.
+
+![The ClaudeAmp skin](mod/docs/claudeamp.png)
+
+![The pets](mod/docs/pets.png)
+
 Two parts:
 
 | Part | What it is |
@@ -69,6 +77,8 @@ permission to record system audio for Mac Pulse Beat.
 | `/tape` | Turns the mod on in this session and opens the deck |
 | `/tape off` | Turns it off: no band, no deck, no polling, no listening |
 | `/tape close` | Closes the deck, keeps the band |
+| `/tape skin amp` / `/tape skin tape` | Switches between ClaudeAmp '98 and the cassette deck (`/tape amp`, `/tape tape` for short) |
+| `/tape pet calico` / `ginger` / `cavapoo` / `none` / `skin` | Chooses the pet; `skin` gives each skin its own cat |
 | `/tape keys` | Switches between the drawn keys and plain system buttons |
 | `/tape vector` / `/tape raster` | Draws the cassette as plain shapes, or from the pictures |
 
